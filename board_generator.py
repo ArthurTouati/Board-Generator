@@ -379,12 +379,17 @@ class BoardGeneratorPlugin(pcbnew.ActionPlugin):
                 except Exception as ex:
                     log_debug(f"UpdateUserInterface failed: {ex}")
             
-            log_debug("Calling Refresh...")
+            log_debug("Scheduling Refresh via wx.CallAfter...")
             try:
-                pcbnew.Refresh()
-                log_debug("Refresh called.")
+                wx.CallAfter(pcbnew.Refresh)
+                log_debug("Refresh scheduled via wx.CallAfter.")
             except Exception as ex:
-                log_debug(f"Refresh failed: {ex}")
+                log_debug(f"wx.CallAfter(Refresh) failed: {ex}")
+                try:
+                    pcbnew.Refresh()
+                    log_debug("Refresh called directly.")
+                except Exception as ex2:
+                    log_debug(f"Direct Refresh failed: {ex2}")
             
         log_debug("Destroying dialog...")
         dlg.Destroy()
