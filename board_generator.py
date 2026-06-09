@@ -657,8 +657,7 @@ class BoardGeneratorPlugin(pcbnew.ActionPlugin):
     def get_or_create_net(self, board, net_name):
         net = board.FindNet(net_name)
         if not net:
-            net = pcbnew.NETINFO_ITEM(board, net_name)
-            board.Add(net)
+            net = board.FindNet(0)
         return net
 
 # Register plugin only if not running automated tests
