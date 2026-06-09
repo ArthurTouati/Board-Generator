@@ -367,35 +367,69 @@ class BoardGeneratorPlugin(pcbnew.ActionPlugin):
         log_debug(f"Dialog result: {res}")
         
         if res == wx.ID_OK:
-            log_debug("Generating PCB components...")
-            self.generate_pcb(board, dlg, log_debug)
-            log_debug("PCB components generated successfully.")
+            # Capture all params from the dialog into a plain data object
+            # BEFORE destroying the dialog
+            log_debug("Capturing params from dialog...")
             
-            # Commented out to isolate canvas refresh crashes
-            # if hasattr(pcbnew, "UpdateUserInterface"):
-            #     log_debug("Calling UpdateUserInterface...")
-            #     try:
-            #         pcbnew.UpdateUserInterface()
-            #         log_debug("UpdateUserInterface called.")
-            #     except Exception as ex:
-            #         log_debug(f"UpdateUserInterface failed: {ex}")
-            # 
-            # log_debug("Scheduling Refresh via wx.CallAfter...")
-            # try:
-            #         wx.CallAfter(pcbnew.Refresh)
-            #         log_debug("Refresh scheduled via wx.CallAfter.")
-            # except Exception as ex:
-            #         log_debug(f"wx.CallAfter(Refresh) failed: {ex}")
-            #         try:
-            #             pcbnew.Refresh()
-            #             log_debug("Refresh called directly.")
-            #         except Exception as ex2:
-            #             log_debug(f"Direct Refresh failed: {ex2}")
-            log_debug("Skipping UI refresh calls.")
+            class Params:
+                pass
             
-        log_debug("Destroying dialog...")
-        dlg.Destroy()
-        log_debug("Dialog destroyed.")
+            p = Params()
+            p.width = dlg.width
+            p.height = dlg.height
+            p.corner_radius = dlg.corner_radius
+            p.offset = dlg.offset
+            p.hole_dia = dlg.hole_dia
+            p.chassis_dia = dlg.chassis_dia
+            p.cross_size = dlg.cross_size
+            p.fmax = dlg.fmax
+            p.er = dlg.er
+            p.nfactor = dlg.nfactor
+            p.setback = dlg.setback
+            p.clearance = dlg.clearance
+            p.via_dia = dlg.via_dia
+            p.via_drill = dlg.via_drill
+            p.use_npth = dlg.use_npth
+            p.enable_tl = dlg.enable_tl
+            p.enable_tr = dlg.enable_tr
+            p.enable_br = dlg.enable_br
+            p.enable_bl = dlg.enable_bl
+            
+            log_debug("Params captured. Destroying dialog...")
+            dlg.Destroy()
+            log_debug("Dialog destroyed.")
+            
+            # Store reference for closure
+            plugin_self = self
+            
+            # Defer board generation to AFTER Run() has fully returned.
+            # This ensures we are in a clean wx event-loop state when modifying
+            # the board, which prevents KiCad from crashing on canvas refresh.
+            def do_generate():
+                log_debug("do_generate: Starting board generation...")
+                try:
+                    plugin_self.generate_pcb(board, p, log_debug)
+                    log_debug("do_generate: Board generation complete.")
+                except Exception as ex:
+                    import traceback
+                    log_debug(f"do_generate: EXCEPTION: {ex}")
+                    log_debug(traceback.format_exc())
+                    return
+                
+                log_debug("do_generate: Calling pcbnew.Refresh()...")
+                try:
+                    pcbnew.Refresh()
+                    log_debug("do_generate: Refresh() called successfully.")
+                except Exception as ex:
+                    log_debug(f"do_generate: Refresh() failed: {ex}")
+                
+            log_debug("Scheduling do_generate via wx.CallAfter...")
+            wx.CallAfter(do_generate)
+            log_debug("Run() returning.")
+        else:
+            log_debug("Destroying dialog (cancelled)...")
+            dlg.Destroy()
+            log_debug("Dialog destroyed.")
 
     def generate_pcb(self, board, p, log_debug=None):
         if not log_debug:
@@ -600,7 +634,7 @@ class BoardGeneratorPlugin(pcbnew.ActionPlugin):
                     via.SetLayerPair(f_cu, b_cu)
                     board.Add(via)
 
-        # Rebuild connectivity to avoid GUI crashes
+        # Rebuild connectivity
         if hasattr(board, "BuildConnectivity"):
             log_debug("Calling board.BuildConnectivity()...")
             try:
@@ -714,4 +748,3 @@ if "KICAD_TESTING" not in os.environ:
         BoardGeneratorPlugin().register()
     except Exception:
         pass
-
