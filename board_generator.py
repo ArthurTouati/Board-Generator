@@ -371,25 +371,27 @@ class BoardGeneratorPlugin(pcbnew.ActionPlugin):
             self.generate_pcb(board, dlg, log_debug)
             log_debug("PCB components generated successfully.")
             
-            if hasattr(pcbnew, "UpdateUserInterface"):
-                log_debug("Calling UpdateUserInterface...")
-                try:
-                    pcbnew.UpdateUserInterface()
-                    log_debug("UpdateUserInterface called.")
-                except Exception as ex:
-                    log_debug(f"UpdateUserInterface failed: {ex}")
-            
-            log_debug("Scheduling Refresh via wx.CallAfter...")
-            try:
-                wx.CallAfter(pcbnew.Refresh)
-                log_debug("Refresh scheduled via wx.CallAfter.")
-            except Exception as ex:
-                log_debug(f"wx.CallAfter(Refresh) failed: {ex}")
-                try:
-                    pcbnew.Refresh()
-                    log_debug("Refresh called directly.")
-                except Exception as ex2:
-                    log_debug(f"Direct Refresh failed: {ex2}")
+            # Commented out to isolate canvas refresh crashes
+            # if hasattr(pcbnew, "UpdateUserInterface"):
+            #     log_debug("Calling UpdateUserInterface...")
+            #     try:
+            #         pcbnew.UpdateUserInterface()
+            #         log_debug("UpdateUserInterface called.")
+            #     except Exception as ex:
+            #         log_debug(f"UpdateUserInterface failed: {ex}")
+            # 
+            # log_debug("Scheduling Refresh via wx.CallAfter...")
+            # try:
+            #         wx.CallAfter(pcbnew.Refresh)
+            #         log_debug("Refresh scheduled via wx.CallAfter.")
+            # except Exception as ex:
+            #         log_debug(f"wx.CallAfter(Refresh) failed: {ex}")
+            #         try:
+            #             pcbnew.Refresh()
+            #             log_debug("Refresh called directly.")
+            #         except Exception as ex2:
+            #             log_debug(f"Direct Refresh failed: {ex2}")
+            log_debug("Skipping UI refresh calls.")
             
         log_debug("Destroying dialog...")
         dlg.Destroy()
