@@ -300,34 +300,22 @@ class BoardGeneratorDialog(wx.Dialog):
             wx.MessageBox("Mounting Hole Offset (D_offset) must be greater than Via Setback (D_setback).", "Input Error", wx.OK | wx.ICON_ERROR)
             return False
 
-        # Detour geometry check
+        # Detour geometry check for rectangular detour
         r_detour = self.chassis_dia / 2.0 + self.clearance
-        d_diff = self.offset - self.setback
-        if r_detour <= d_diff:
-            wx.MessageBox(
-                f"Detour Radius (R_detour = D_chassis/2 + D_clearance = {r_detour:.2f} mm) must be strictly greater than "
-                f"(D_offset - D_setback = {d_diff:.2f} mm) to intersect setback lines.\n"
-                f"Please increase D_clearance / D_chassis or decrease D_offset.",
-                "Geometry Error", wx.OK | wx.ICON_ERROR
-            )
-            return False
-
-        # Detour overlap check
-        term = math.sqrt(r_detour*r_detour - d_diff*d_diff)
-        if 2 * term >= (self.width - 2 * self.offset):
+        if (self.offset + r_detour) >= self.width / 2.0:
             wx.MessageBox(
                 f"Horizontal detours overlap!\n"
-                f"Detour width span ({2*term:.2f} mm) exceeds available horizontal space ({self.width - 2*self.offset:.2f} mm).\n"
-                f"Please reduce detour radius or increase board width.",
+                f"Detour reach ({self.offset + r_detour:.2f} mm) exceeds half of board width ({self.width / 2.0:.2f} mm).\n"
+                f"Please reduce D_chassis, D_clearance, or D_offset.",
                 "Geometry Error", wx.OK | wx.ICON_ERROR
             )
             return False
 
-        if 2 * term >= (self.height - 2 * self.offset):
+        if (self.offset + r_detour) >= self.height / 2.0:
             wx.MessageBox(
                 f"Vertical detours overlap!\n"
-                f"Detour height span ({2*term:.2f} mm) exceeds available vertical space ({self.height - 2*self.offset:.2f} mm).\n"
-                f"Please reduce detour radius or increase board height.",
+                f"Detour reach ({self.offset + r_detour:.2f} mm) exceeds half of board height ({self.height / 2.0:.2f} mm).\n"
+                f"Please reduce D_chassis, D_clearance, or D_offset.",
                 "Geometry Error", wx.OK | wx.ICON_ERROR
             )
             return False
@@ -360,6 +348,11 @@ class BoardGeneratorPlugin(pcbnew.ActionPlugin):
         if res == wx.ID_OK:
             # Execute board generation
             self.generate_pcb(board, dlg)
+            if hasattr(pcbnew, "UpdateUserInterface"):
+                try:
+                    pcbnew.UpdateUserInterface()
+                except Exception:
+                    pass
             pcbnew.Refresh()
             
         dlg.Destroy()
@@ -398,8 +391,6 @@ class BoardGeneratorPlugin(pcbnew.ActionPlugin):
 
         # Calculate detour parameters
         r_detour = p.chassis_dia / 2.0 + p.clearance
-        d_diff = p.offset - p.setback
-        detour_intersect_offset = math.sqrt(r_detour*r_detour - d_diff*d_diff) if r_detour > d_diff else 0.0
 
         # Create isolated mounting zones and center marking
         for i, c in enumerate(corners):
@@ -484,8 +475,8 @@ class BoardGeneratorPlugin(pcbnew.ActionPlugin):
 
         # Corner endpoints on setback lines
         # For a corner (sx, sy):
-        # x_h, y_h = cx - sx * detour_intersect_offset, sy * (y_lim - setback)
-        # x_v, y_v = sx * (x_lim - setback), cy - sy * detour_intersect_offset
+        # x_h, y_h = cx - sx * r_detour, sy * (y_lim - setback)
+        # x_v, y_v = sx * (x_lim - setback), cy - sy * r_detour
         pts = {}
         for c in corners:
             sx, sy = c["sx"], c["sy"]
@@ -494,11 +485,11 @@ class BoardGeneratorPlugin(pcbnew.ActionPlugin):
             cy_val = sy * (y_lim - p.offset)
 
             if c["enabled"]:
-                # Detour coordinates
-                x_h = cx_val - sx * detour_intersect_offset
+                # Rectangular detour coordinates
+                x_h = cx_val - sx * r_detour
                 y_h = sy * (y_lim - p.setback)
                 x_v = sx * (x_lim - p.setback)
-                y_v = cy_val - sy * detour_intersect_offset
+                y_v = cy_val - sy * r_detour
                 pts[f"h_{name}"] = pcbnew.VECTOR2I(int(pcbnew.FromMM(x_h)), int(pcbnew.FromMM(y_h)))
                 pts[f"v_{name}"] = pcbnew.VECTOR2I(int(pcbnew.FromMM(x_v)), int(pcbnew.FromMM(y_v)))
             else:
@@ -518,25 +509,25 @@ class BoardGeneratorPlugin(pcbnew.ActionPlugin):
         path_elements.append(LineSegment(pts["h_TL"], pts["h_TR"]))
         
         # TR Corner
-        path_elements.append(self.get_corner_path(corners[1], p, r_detour, detour_intersect_offset, x_lim, y_lim, pts["h_TR"], pts["v_TR"]))
+        path_elements.extend(self.get_corner_path(corners[1], p, r_detour, x_lim, y_lim, pts["h_TR"], pts["v_TR"], True))
         
         # Right line: v_TR to v_BR
         path_elements.append(LineSegment(pts["v_TR"], pts["v_BR"]))
         
         # BR Corner
-        path_elements.append(self.get_corner_path(corners[2], p, r_detour, detour_intersect_offset, x_lim, y_lim, pts["v_BR"], pts["h_BR"]))
+        path_elements.extend(self.get_corner_path(corners[2], p, r_detour, x_lim, y_lim, pts["v_BR"], pts["h_BR"], False))
         
         # Bottom line: h_BR to h_BL
         path_elements.append(LineSegment(pts["h_BR"], pts["h_BL"]))
         
         # BL Corner
-        path_elements.append(self.get_corner_path(corners[3], p, r_detour, detour_intersect_offset, x_lim, y_lim, pts["h_BL"], pts["v_BL"]))
+        path_elements.extend(self.get_corner_path(corners[3], p, r_detour, x_lim, y_lim, pts["h_BL"], pts["v_BL"], True))
         
         # Left line: v_BL to v_TL
         path_elements.append(LineSegment(pts["v_BL"], pts["v_TL"]))
         
         # TL Corner
-        path_elements.append(self.get_corner_path(corners[0], p, r_detour, detour_intersect_offset, x_lim, y_lim, pts["v_TL"], pts["h_TL"]))
+        path_elements.extend(self.get_corner_path(corners[0], p, r_detour, x_lim, y_lim, pts["v_TL"], pts["h_TL"], False))
 
         # 6. Distribute Vias Along the Shielding Path
         # Calculate overall path length
@@ -563,21 +554,24 @@ class BoardGeneratorPlugin(pcbnew.ActionPlugin):
                     via.SetLayerPair(f_cu, b_cu)
                     board.Add(via)
 
-    def get_corner_path(self, corner, p, r_detour, detour_intersect_offset, x_lim, y_lim, start_pt, end_pt):
-        # Returns either an ArcSegment or a LineSegment (if radius=0) representing the corner
+        # Rebuild connectivity to avoid GUI crashes
+        if hasattr(board, "BuildConnectivity"):
+            try:
+                board.BuildConnectivity()
+            except Exception:
+                pass
+
+    def get_corner_path(self, corner, p, r_detour, x_lim, y_lim, start_pt, end_pt, start_is_horizontal):
+        # Returns a list of segments representing the corner path
         sx, sy = corner["sx"], corner["sy"]
         
         if corner["enabled"]:
-            # Detour arc centered at mounting hole center
-            cx = sx * (x_lim - p.offset)
-            cy = sy * (y_lim - p.offset)
-            center_iu = pcbnew.VECTOR2I(int(pcbnew.FromMM(cx)), int(pcbnew.FromMM(cy)))
-            r_detour_iu = int(pcbnew.FromMM(r_detour))
-            
-            # Compute angles relative to center
-            start_ang = math.atan2(start_pt.y - center_iu.y, start_pt.x - center_iu.x)
-            end_ang = math.atan2(end_pt.y - center_iu.y, end_pt.x - center_iu.x)
-            return ArcSegment(center_iu, r_detour_iu, start_ang, end_ang)
+            # Rectangular detour
+            if start_is_horizontal:
+                mid_pt = pcbnew.VECTOR2I(start_pt.x, end_pt.y)
+            else:
+                mid_pt = pcbnew.VECTOR2I(end_pt.x, start_pt.y)
+            return [LineSegment(start_pt, mid_pt), LineSegment(mid_pt, end_pt)]
         else:
             # Standard fillet arc or sharp corner
             r_fillet = p.corner_radius - p.setback
@@ -589,9 +583,9 @@ class BoardGeneratorPlugin(pcbnew.ActionPlugin):
                 
                 start_ang = math.atan2(start_pt.y - center_iu.y, start_pt.x - center_iu.x)
                 end_ang = math.atan2(end_pt.y - center_iu.y, end_pt.x - center_iu.x)
-                return ArcSegment(center_iu, r_fillet_iu, start_ang, end_ang)
+                return [ArcSegment(center_iu, r_fillet_iu, start_ang, end_ang)]
             else:
-                return LineSegment(start_pt, end_pt)
+                return [LineSegment(start_pt, end_pt)]
 
     def get_point_on_path(self, segments, d):
         for seg in segments:
