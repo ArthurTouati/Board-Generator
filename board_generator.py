@@ -416,12 +416,27 @@ class BoardGeneratorPlugin(pcbnew.ActionPlugin):
                     log_debug(traceback.format_exc())
                     return
                 
-                log_debug("do_generate: Calling pcbnew.Refresh()...")
-                try:
-                    pcbnew.Refresh()
-                    log_debug("do_generate: Refresh() called successfully.")
-                except Exception as ex:
-                    log_debug(f"do_generate: Refresh() failed: {ex}")
+                # pcbnew.Refresh() crashes KiCad when called directly from a
+                # CallAfter callback. Schedule it one more event-loop cycle out,
+                # and use the wx window refresh as a safer fallback.
+                def safe_refresh():
+                    log_debug("safe_refresh: Attempting wx window refresh...")
+                    try:
+                        # Find the PCB editor frame and refresh via wx
+                        for win in wx.GetTopLevelWindows():
+                            title = win.GetTitle().lower()
+                            if title.startswith('pcb editor') or title.startswith('pcbnew'):
+                                win.Refresh()
+                                win.Update()
+                                log_debug("safe_refresh: wx window Refresh()/Update() called.")
+                                return
+                        log_debug("safe_refresh: PCB frame not found, skipping refresh.")
+                    except Exception as ex:
+                        log_debug(f"safe_refresh: wx refresh failed: {ex}")
+                
+                log_debug("do_generate: Scheduling safe_refresh via wx.CallAfter...")
+                wx.CallAfter(safe_refresh)
+                log_debug("do_generate: safe_refresh scheduled.")
                 
             log_debug("Scheduling do_generate via wx.CallAfter...")
             wx.CallAfter(do_generate)
