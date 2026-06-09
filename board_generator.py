@@ -332,40 +332,79 @@ class BoardGeneratorPlugin(pcbnew.ActionPlugin):
         self.icon_file_name = os.path.join(os.path.dirname(__file__), 'icon.png')
 
     def Run(self):
+        log_path = os.path.join(os.path.dirname(__file__), "debug_generator.log")
+        try:
+            if os.path.exists(log_path):
+                os.remove(log_path)
+        except Exception:
+            pass
+
+        def log_debug(msg):
+            try:
+                with open(log_path, "a") as f:
+                    f.write(msg + "\n")
+                    f.flush()
+            except Exception:
+                pass
+
+        log_debug("--- START RUN ---")
         board = pcbnew.GetBoard()
         if not board:
+            log_debug("No board found")
             return
             
+        log_debug("Finding pcb_frame...")
         pcb_frame = None
         for win in wx.GetTopLevelWindows():
             if win.GetTitle().lower().startswith('pcb editor') or win.GetTitle().lower().startswith('pcbnew'):
                 pcb_frame = win
                 break
                 
+        log_debug("Instantiating BoardGeneratorDialog...")
         dlg = BoardGeneratorDialog(pcb_frame)
+        log_debug("Showing dialog modal...")
         res = dlg.ShowModal()
+        log_debug(f"Dialog result: {res}")
         
         if res == wx.ID_OK:
-            # Execute board generation
-            self.generate_pcb(board, dlg)
+            log_debug("Generating PCB components...")
+            self.generate_pcb(board, dlg, log_debug)
+            log_debug("PCB components generated successfully.")
+            
             if hasattr(pcbnew, "UpdateUserInterface"):
+                log_debug("Calling UpdateUserInterface...")
                 try:
                     pcbnew.UpdateUserInterface()
-                except Exception:
-                    pass
-            pcbnew.Refresh()
+                    log_debug("UpdateUserInterface called.")
+                except Exception as ex:
+                    log_debug(f"UpdateUserInterface failed: {ex}")
             
+            log_debug("Calling Refresh...")
+            try:
+                pcbnew.Refresh()
+                log_debug("Refresh called.")
+            except Exception as ex:
+                log_debug(f"Refresh failed: {ex}")
+            
+        log_debug("Destroying dialog...")
         dlg.Destroy()
+        log_debug("Dialog destroyed.")
 
-    def generate_pcb(self, board, p):
-        # 1. Net Initialization
+    def generate_pcb(self, board, p, log_debug=None):
+        if not log_debug:
+            def log_debug(msg):
+                pass
+
+        log_debug("generate_pcb: 1. Net Initialization...")
         gnd_net = self.get_or_create_net(board, "GND")
+        log_debug(f"GND net resolved: {gnd_net}")
         chassis_nets = [
             self.get_or_create_net(board, "CHASSIS_1"),
             self.get_or_create_net(board, "CHASSIS_2"),
             self.get_or_create_net(board, "CHASSIS_3"),
             self.get_or_create_net(board, "CHASSIS_4")
         ]
+        log_debug(f"Chassis nets resolved: {chassis_nets}")
 
         # 2. Board boundaries
         x_lim = p.width / 2.0
@@ -556,10 +595,12 @@ class BoardGeneratorPlugin(pcbnew.ActionPlugin):
 
         # Rebuild connectivity to avoid GUI crashes
         if hasattr(board, "BuildConnectivity"):
+            log_debug("Calling board.BuildConnectivity()...")
             try:
                 board.BuildConnectivity()
-            except Exception:
-                pass
+                log_debug("board.BuildConnectivity() called.")
+            except Exception as ex:
+                log_debug(f"board.BuildConnectivity() failed: {ex}")
 
     def get_corner_path(self, corner, p, r_detour, x_lim, y_lim, start_pt, end_pt, start_is_horizontal):
         # Returns a list of segments representing the corner path
